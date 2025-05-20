@@ -12,6 +12,8 @@ require("../model/sanphamkhuyenmai.php");
 require("../model/donhang.php");
 require("../model/donhangct.php");
 require("../model/binhluan.php");
+require("../model/vnpay.php");
+
 
 
 $dm = new DANHMUC();
@@ -156,6 +158,87 @@ switch ($action) {
         include("cart.php");
         break;
         
+    case 'xuly_thanhtoan':
+    // Lấy thông tin khách hàng, địa chỉ, giỏ hàng
+    $giohang = laygiohang();
+    if (empty($giohang)) {
+        echo "Giỏ hàng trống, không thể thanh toán.";
+        exit();
+    }
+
+    if (!isset($_SESSION["khachhang"])) {
+        echo "Bạn phải đăng nhập để thanh toán.";
+        exit();
+    }
+
+    $khachhang_id = $_SESSION["khachhang"]["id"];
+    $diachi = $_POST["txtdiachi"] ?? '';
+
+    // Lưu địa chỉ giao hàng
+    $dc = new DIACHI();
+    $diachi_id = $dc->themdiachi($khachhang_id, $diachi);
+
+    // Tính tổng tiền giỏ hàng
+    $tongtien = tinhtiengiohang();
+
+    if ($_POST['httt'] === 'vnpay') {
+        // Tạo đơn hàng với trạng thái chưa thanh toán = 0
+        $donhang_id = $dh->themdonhang($khachhang_id, $diachi_id, $tongtien, 0); // truyền trạng thái 0
+
+        if (!$donhang_id) {
+            echo "Lỗi khi tạo đơn hàng.";
+            exit();
+        }
+
+        // Lưu chi tiết đơn hàng
+        $ct = new DONHANGCT();
+        foreach ($giohang as $id => $mh) {
+            $dongia = $mh["giaban"];
+            $soluong = $mh["soluong"];
+            $thanhtien = $mh["thanhtien"];
+            $ct->themchitietdonhang($donhang_id, $id, $dongia, $soluong, $thanhtien);
+
+            // Cập nhật tồn kho
+            $mhModel = new MATHANG();
+            $mhModel->capnhatsoluong($id, $soluong);
+        }
+
+        // Xóa giỏ hàng tạm thời để tránh nhầm lẫn
+        xoagiohang();
+
+        // Xây dựng URL thanh toán VNPay với donhang_id và tongtien
+        $vnp_Url = buildVnpayUrl($donhang_id, $tongtien);
+        header("Location: " . $vnp_Url);
+        exit();
+    } else if ($_POST['httt'] === 'tienmat') {
+        // Nếu thanh toán khi nhận hàng, tạo đơn hàng và cập nhật trạng thái đã thanh toán = 1
+        $donhang_id = $dh->themdonhang($khachhang_id, $diachi_id, $tongtien, 1); // trạng thái 1
+
+        if (!$donhang_id) {
+            echo "Lỗi khi tạo đơn hàng.";
+            exit();
+        }
+
+        // Lưu chi tiết đơn hàng
+        $ct = new DONHANGCT();
+        foreach ($giohang as $id => $mh) {
+            $dongia = $mh["giaban"];
+            $soluong = $mh["soluong"];
+            $thanhtien = $mh["thanhtien"];
+            $ct->themchitietdonhang($donhang_id, $id, $dongia, $soluong, $thanhtien);
+
+            $mhModel = new MATHANG();
+            $mhModel->capnhatsoluong($id, $soluong);
+        }
+
+        // Xóa giỏ hàng
+        xoagiohang();
+
+        // Hiển thị trang cảm ơn
+        include("message.php");
+        exit();
+    }
+    break;
 
     case "xoagiohang":
         xoagiohang();
@@ -183,13 +266,23 @@ switch ($action) {
         $giohang = laygiohang();
         include("cart.php");
     } else {
+        $thanhtien = tinhtiengiohang();  // Tính tổng tiền
+        include("checkout.php");
+    }
+    break;
+
+
+    if ($has_error) {
+        $giohang = laygiohang();
+        include("cart.php");
+    } else {
         include("checkout.php");
     }
     break;
 
 
     case "luudonhang":
-
+        
         $diachi = $_POST["txtdiachi"];
         if (!isset($_SESSION["khachhang"])) {
             $email = $_POST["txtemail"];
@@ -208,7 +301,22 @@ switch ($action) {
         // lưu đơn hàng
         $dh = new DONHANG();
         $tongtien = tinhtiengiohang();
+        // Lưu đơn hàng
         $donhang_id = $dh->themdonhang($khachhang_id, $diachi_id, $tongtien);
+
+        if ($donhang_id) {
+            // Cập nhật trạng thái đơn hàng là đã thanh toán (ví dụ 1)
+            $db = DATABASE::connect();
+            $sql = "UPDATE donhang SET trangthai = 1 WHERE id = :id";
+            $cmd = $db->prepare($sql);
+            $cmd->bindValue(':id', $donhang_id);
+            $cmd->execute();
+        } else {
+            // Xử lý lỗi lưu đơn hàng
+            echo "Lỗi khi lưu đơn hàng";
+            exit();
+        }
+
 
         // lưu chi tiết đơn hàng
         $ct = new DONHANGCT();
@@ -228,6 +336,59 @@ switch ($action) {
         // chuyển đến trang cảm ơn
         include("message.php");
         break;
+
+        //vnapay
+        case "vnpay_return":
+            require_once("../model/vnpay.php");
+            require_once("../model/donhang.php");
+
+            $vnpay = new VNPAY();
+            $dh = new DONHANG();
+
+            $amount = isset($_GET['vnp_Amount']) ? $_GET['vnp_Amount'] / 100 : 0;
+            $bankcode = $_GET['vnp_BankCode'] ?? '';
+            $banktranno = $_GET['vnp_BankTranNo'] ?? '';
+            $cardtype = $_GET['vnp_CardType'] ?? '';
+            $orderinfo = $_GET['vnp_OrderInfo'] ?? '';
+            $paydate = $_GET['vnp_PayDate'] ?? '';
+            $tmncode = $_GET['vnp_TmnCode'] ?? '';
+            $transactionno = $_GET['vnp_TransactionNo'] ?? '';
+            $donhang_id = $_GET['vnp_TxnRef'] ?? 0;
+            $response_code = $_GET['vnp_ResponseCode'] ?? '';
+
+           if ($response_code === '00') {
+            if (!empty($donhang_id)) {
+                try {
+                    // Lưu giao dịch
+                    $saved = $vnpay->luuGiaoDich($amount, $bankcode, $banktranno, $cardtype, $orderinfo, $paydate, $tmncode, $transactionno, $donhang_id);
+                    if ($saved) {
+                        // Cập nhật trạng thái đơn hàng sang đã thanh toán
+                        $db = DATABASE::connect();
+                        $sql = "UPDATE donhang SET trangthai = 1 WHERE id = :id";
+                        $cmd = $db->prepare($sql);
+                        $cmd->bindValue(':id', $donhang_id, PDO::PARAM_INT);
+                        $cmd->execute();
+
+                        // Lấy thông tin đơn hàng để hiển thị
+                        $donhang = $dh->laydonhangtheoid($donhang_id);
+                        $tongtien = $donhang['tongtien'] ?? 0;
+
+                        include("message.php");
+                    } else {
+                        echo "<p>Lỗi: Không lưu được giao dịch VNPay.</p>";
+                    }
+                } catch (PDOException $e) {
+                    echo "<p>Lỗi khi cập nhật trạng thái đơn hàng: " . htmlspecialchars($e->getMessage()) . "</p>";
+                }
+            } else {
+                echo "<p>Lỗi: ID đơn hàng không hợp lệ.</p>";
+            }
+        } else {
+            echo "<p>Thanh toán không thành công. Mã lỗi: " . htmlspecialchars($response_code) . "</p>";
+        }
+
+            break;
+
     case "dangnhap":
         $khuyenmai = $km->laychuongtrinhkhuyenmai(); // thêm dòng này
         include("loginform.php");

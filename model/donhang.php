@@ -2,23 +2,75 @@
 
 class DONHANG
 {
-	public function themdonhang($nguoidung_id, $diachi_id, $tongtien)
-	{
-		$db = DATABASE::connect();
-		try {
-			$sql = "INSERT INTO donhang(nguoidung_id, diachi_id, tongtien) 
-					VALUES(:nguoidung_id,:diachi_id,:tongtien)";
-			$cmd = $db->prepare($sql);
-			$cmd->bindValue(':nguoidung_id', $nguoidung_id);
-			$cmd->bindValue(':diachi_id', $diachi_id);
-			$cmd->bindValue(':tongtien', $tongtien);
-			$cmd->execute();
-			return $db->lastInsertId();
-		} catch (PDOException $e) {
-			echo "<p>Lỗi truy vấn: " . $e->getMessage() . "</p>";
-			exit();
+	public function themdonhang($nguoidung_id, $diachi_id, $tongtien, $trangthai = 0, $ghichu = null)
+		{
+			$db = DATABASE::connect();
+			if ($db === null) return false;
+
+			try {
+				$sql = "INSERT INTO donhang (nguoidung_id, diachi_id, tongtien, trangthai, ghichu, ngay) 
+						VALUES (:nguoidung_id, :diachi_id, :tongtien, :trangthai, :ghichu, NOW())";
+				$cmd = $db->prepare($sql);
+
+				$cmd->bindValue(':nguoidung_id', (int)$nguoidung_id, PDO::PARAM_INT);
+				$cmd->bindValue(':diachi_id', (int)$diachi_id, PDO::PARAM_INT);
+				$cmd->bindValue(':tongtien', (float)$tongtien, PDO::PARAM_STR); // float dùng PDO::PARAM_STR
+				$cmd->bindValue(':trangthai', (int)$trangthai, PDO::PARAM_INT);
+				$cmd->bindValue(':ghichu', $ghichu, PDO::PARAM_STR);
+
+				$cmd->execute();
+				return $db->lastInsertId(); // Trả về donhang_id
+			} catch (PDOException $e) {
+				error_log("Lỗi khi thêm đơn hàng: " . $e->getMessage());
+				return false;
+			}
 		}
-	}
+	public function themdonhangTuMaGiaoDich($ma_giao_dich, $nguoidung_id, $diachi_id, $tongtien, $trangthai = 0, $ghichu = null)
+		{
+			$db = DATABASE::connect();
+			if ($db === null) return false;
+
+			try {
+				// Kiểm tra nếu đơn hàng đã tồn tại với mã giao dịch này
+				$check = $db->prepare("SELECT id FROM donhang WHERE ma_giao_dich = :ma_giao_dich");
+				$check->bindValue(':ma_giao_dich', $ma_giao_dich, PDO::PARAM_STR);
+				$check->execute();
+				if ($check->rowCount() > 0) {
+					return $check->fetchColumn(); // trả về id đã có
+				}
+
+				$sql = "INSERT INTO donhang (ma_giao_dich, nguoidung_id, diachi_id, tongtien, trangthai, ghichu, ngay) 
+						VALUES (:ma_giao_dich, :nguoidung_id, :diachi_id, :tongtien, :trangthai, :ghichu, NOW())";
+				$cmd = $db->prepare($sql);
+
+				$cmd->bindValue(':ma_giao_dich', $ma_giao_dich, PDO::PARAM_STR);
+				$cmd->bindValue(':nguoidung_id', (int)$nguoidung_id, PDO::PARAM_INT);
+				$cmd->bindValue(':diachi_id', (int)$diachi_id, PDO::PARAM_INT);
+				$cmd->bindValue(':tongtien', (float)$tongtien);
+				$cmd->bindValue(':trangthai', (int)$trangthai, PDO::PARAM_INT);
+				$cmd->bindValue(':ghichu', $ghichu, PDO::PARAM_STR);
+
+				$cmd->execute();
+				return $db->lastInsertId();
+			} catch (PDOException $e) {
+				error_log("Lỗi khi thêm đơn hàng từ mã giao dịch: " . $e->getMessage());
+				return false;
+			}
+		}
+
+
+
+
+			public function capnhattrangthai($id, $trangthai)
+		{
+			$db = DATABASE::connect();
+			$sql = "UPDATE donhang SET trangthai = :trangthai WHERE id = :id";
+			$cmd = $db->prepare($sql);
+			$cmd->bindValue(':trangthai', $trangthai);
+			$cmd->bindValue(':id', $id);
+			$cmd->execute();
+		}
+
 
 	public function laytatcadonhangcttheoid($id)
 	{

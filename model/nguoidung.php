@@ -1,7 +1,6 @@
 <?php
 class NGUOIDUNG
 {
-	// khai báo các thuộc tính (SV tự viết)
 
 	public function kiemtranguoidunghople($email, $matkhau, $is_admin_page)
 	{

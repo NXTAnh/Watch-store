@@ -1,4 +1,16 @@
-<?php include("inc/top.php"); ?>
+<?php
+include("inc/top.php");
+
+
+// Gọi tinhtiengiohang một lần duy nhất
+$tongtien = tinhtiengiohang();
+
+// Tạo và lưu order_id vào session nếu chưa có
+if (!isset($_SESSION['current_order_id'])) {
+    $_SESSION['current_order_id'] = uniqid('order_');
+}
+$order_id = $_SESSION['current_order_id'];
+?>
 
 <div class="order-container container my-5">
     <div class="row">
@@ -19,17 +31,28 @@
                     </div>
                     <div class="order-form-group my-3">
                         <label>Số điện thoại</label>
-                        <input type="number" class="form-control" name="txtsodienthoai" value="<?php echo $_SESSION["khachhang"]["sodienthoai"] ?>" disabled>
+                        <input type="number" class="form-control" name="txtsodienthoai" value="<?php echo $_SESSION["khachhang"]["sodienthoai"]; ?>" disabled>
                     </div>
                     <div class="order-form-group my-3">
                         <label>Địa chỉ giao hàng</label>
                         <textarea class="form-control" name="txtdiachi" required></textarea>
                     </div>
                     <div class="order-form-group my-3">
-                        <input type="submit" value="Hoàn tất đơn hàng" class="btn btn-success w-100">
+                        <button type="submit" class="btn btn-success w-100">Thanh toán khi nhận</button>
                     </div>
                 </form>
+
+               <!-- Thanh toán VNPay -->
+                <form action="vnpay_create_payment.php" method="POST" class="mt-3">
+                    <input type="hidden" name="order_id" value="<?php echo $order_id; ?>" />
+                    <input type="hidden" name="sotien" value="<?php echo (int)$tongtien; ?>" />
+                    <input type="hidden" name="hoten" value="<?php echo $_SESSION['khachhang']['hoten']; ?>" />
+                    <input type="hidden" name="email" value="<?php echo $_SESSION['khachhang']['email']; ?>" />
+                    <input type="hidden" name="sodienthoai" value="<?php echo $_SESSION['khachhang']['sodienthoai']; ?>" />
+                    <button type="submit" class="btn btn-warning w-100">Thanh toán VNPay</button>
+                </form>
             <?php else: ?>
+                <!-- Form khi chưa đăng nhập -->
                 <form method="post" action="index.php" class="order-form">
                     <input type="hidden" name="action" value="luudonhang">
                     <div class="order-form-group my-3">
@@ -54,6 +77,8 @@
                 </form>
             <?php endif; ?>
         </div>
+
+        <!-- Thông tin đơn hàng -->
         <div class="col-sm-6">
             <h4 class="order-info-title text-info mb-4">Thông tin đơn hàng</h4>
             <table class="table table-bordered">
@@ -76,7 +101,7 @@
                     <?php endforeach; ?>
                     <tr class="table-info">
                         <td colspan="3" class="text-end"><b>Tổng tiền</b></td>
-                        <td><b><?php echo number_format(tinhtiengiohang()); ?>đ</b></td>
+                        <td><b><?php echo number_format($tongtien); ?>đ</b></td>
                     </tr>
                 </tbody>
             </table>
@@ -85,6 +110,7 @@
 </div>
 
 <?php include("inc/bottom.php"); ?>
+
 
 <!-- Custom CSS -->
 <style>
